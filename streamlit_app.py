@@ -7,7 +7,7 @@ st.set_page_config(layout="wide")
 st.title("📈 Calculadora Exacta de Movilidad Previsional")
 st.subheader("Comparación: ANSeS (Ley) vs. Fallos Judiciales")
 
-# --- Datos ANSeS (actualizados con tus coeficientes) ---
+# --- Datos ANSeS (tus coeficientes exactos) ---
 data_anses = {
     "Fecha": ["2020-03", "2020-06", "2020-09", "2020-12", "2021-03", "2021-06", 
              "2021-09", "2021-12", "2022-03", "2022-06", "2022-09", "2022-12",
@@ -16,7 +16,7 @@ data_anses = {
              "2024-11", "2024-12", "2025-01", "2025-02", "2025-03", "2025-04",
              "2025-05", "2025-06"],
     "Coeficiente": [
-        None,  # Marzo 2020 (se calcula aparte con $1500 + 2.3%)
+        None,  # Marzo 2020 (se calcula aparte si es jubilación pre-2020)
         1.0612, 1.075, 1.05, 1.0807, 1.1212, 1.1239, 1.1211,
         1.1228, 1.15, 1.1553, 1.1562, 1.1704, 1.2092, 1.2329,
         1.2087, 1.2718, 1.274, 1.1101, 1.0883, 1.0418, 1.0458,
@@ -25,7 +25,7 @@ data_anses = {
     ]
 }
 
-# --- Datos Justicia (actualizados con tus coeficientes) ---
+# --- Datos Justicia (tus coeficientes exactos) ---
 data_justicia = {
     "Fecha": ["2020-03", "2020-06", "2020-09", "2020-12", "2021-03", "2021-06",
              "2021-09", "2021-12", "2022-03", "2022-06", "2022-09", "2022-12",
@@ -49,28 +49,31 @@ df_anses["Fecha"] = pd.to_datetime(df_anses["Fecha"])
 df_justicia["Fecha"] = pd.to_datetime(df_justicia["Fecha"])
 
 # --- Interfaz de usuario ---
-nombre = st.text_input("Nombre de la persona:", value="MIRAMONT")
-haber_base = st.number_input("Haber base (febrero 2020):", min_value=0.0, format="%.2f", value=42346.76)
-fecha_base = st.text_input("Fecha de jubilación (YYYY-MM):", value="2020-02")
+nombre = st.text_input("Nombre de la persona:", value="Ejemplo")
+haber_base = st.number_input("Haber base:", min_value=0.0, format="%.2f", value=50000.0)
+fecha_base = st.text_input("Fecha de jubilación o primer cobro (YYYY-MM):", value="2022-10")
 
-# --- Cálculos exactos ---
+# --- Cálculos exactos (válidos para cualquier fecha) ---
 def calcular_actualizacion(haber_base, fecha_base):
     fecha_base_dt = pd.to_datetime(fecha_base)
     
-    # ANSeS: Fórmula especial para marzo 2020 ($1500 + 2.3%)
+    # ANSeS: Fórmula especial SOLO para jubilados pre-marzo 2020
     if fecha_base_dt <= pd.to_datetime("2020-02"):
-        haber_marzo2020 = (haber_base + 1500) * 1.023
-        coefs_anses = [haber_marzo2020 / haber_base] + list(df_anses[df_anses["Fecha"] > pd.to_datetime("2020-03")]["Coeficiente"])
+        haber_marzo2020 = (haber_base + 1500) * 1.023  # $1500 + 2.3%
+        coefs_anses = [haber_marzo2020 / haber_base] + list(
+            df_anses[(df_anses["Fecha"] > pd.to_datetime("2020-03")) & 
+            (df_anses["Fecha"] >= fecha_base_dt)]["Coeficiente"]
+        )
     else:
         coefs_anses = df_anses[df_anses["Fecha"] >= fecha_base_dt]["Coeficiente"]
     
-    # Justicia: Coeficientes desde marzo 2020
-    coefs_justicia = df_justicia[df_justicia["Fecha"] >= pd.to_datetime("2020-03")]["Coeficiente"]
+    # Justicia: Siempre desde fecha_base (sin fórmulas especiales)
+    coefs_justicia = df_justicia[df_justicia["Fecha"] >= fecha_base_dt]["Coeficiente"]
     
-    # Aplicar coeficientes
+    # Aplicar coeficientes (ignorar NaN)
     haber_anses = haber_base
     for coef in coefs_anses:
-        if pd.notna(coef):  # Ignorar valores None
+        if pd.notna(coef):
             haber_anses *= coef
     
     haber_justicia = haber_base
@@ -89,10 +92,9 @@ if st.button("Calcular"):
         st.subheader(f"🔍 Resultados para {nombre}:")
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("ANSeS (Ley)", f"${haber_anses:,.2f}", help="Calculado con $1500 + 2.3% en marzo 2020")
+            st.metric("ANSeS (Ley)", f"${haber_anses:,.2f}")
         with col2:
-            st.metric("Justicia (Fallos)", f"${haber_justicia:,.2f}", help="Coeficientes judiciales exactos")
-        
+            st.metric("Justicia (Fallos)", f"${haber_justicia:,.2f}")
         st.metric("Diferencia", 
                  f"${diferencia:,.2f}", 
                  f"{porcentaje:.2f}%",
@@ -101,11 +103,11 @@ if st.button("Calcular"):
     except Exception as e:
         st.error(f"Error: {e}. Verifica la fecha ingresada.")
 
-# --- Ejemplo validado ---
+# --- Ejemplos de uso ---
 st.markdown("---")
 st.info("""
-**✅ Ejemplo validado (para $42,346.76 en febrero 2020):**  
-- **ANSeS**: $859,450.46  
-- **Justicia**: $1,450,741.89  
-- **Diferencia**: +$591,291.43 (68.79%)  
+**📌 Ejemplos válidos:**  
+- **Jubilación en 2020**: `2020-02` → Aplica $1500 + 2.3% en marzo 2020 + coeficientes posteriores.  
+- **Jubilación en 2022**: `2022-10` → Solo usa coeficientes desde octubre 2022.  
+- **Jubilación en 2024**: `2024-03` → Coeficientes desde marzo 2024.  
 """)
